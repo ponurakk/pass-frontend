@@ -14,6 +14,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g")
 
 set(SOURCE_FILES
   src/main.c
+  src/crypto.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
