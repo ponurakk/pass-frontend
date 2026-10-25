@@ -7,6 +7,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(X11 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GPGME REQUIRED IMPORTED_TARGET gpgme)
+pkg_check_modules(XFT REQUIRED IMPORTED_TARGET xft)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
@@ -22,4 +23,4 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 set(CMAKE_BUILD_TYPE Release)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${X11_INCLUDE_DIR})
-target_link_libraries(${PROJECT_NAME} PRIVATE ${X11_LIBRARIES} Xrandr PkgConfig::GPGME)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${X11_LIBRARIES} Xrandr PkgConfig::GPGME PkgConfig::XFT)
