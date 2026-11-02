@@ -317,6 +317,7 @@ int main(void) {
   }
 
   size_t start = 0;
+  size_t line = 0;
 
   XEvent event = {0};
   Atom net_active = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
@@ -331,7 +332,6 @@ int main(void) {
   XSendEvent(display, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &event);
 
   XFlush(display);
-
   while (1) {
     XNextEvent(display, &event);
 
@@ -373,6 +373,13 @@ int main(void) {
 
       XftDrawStringUtf8(draw, &color, font_small, PADDING, WINDOW_HEIGHT - 20,
                         (const FcChar8 *)input, (int)length);
+
+      XSetForeground(display, gc, accent);
+      XFillRectangle(display, win, gc, WINDOW_WIDTH - PADDING - 5, WINDOW_HEIGHT - 35, 16, 20);
+      char num[2];
+      sprintf(num, "%zu", line + 1);
+      XftDrawStringUtf8(draw, &color, font_small, WINDOW_WIDTH - PADDING, WINDOW_HEIGHT - 20,
+                        (const FcChar8 *)(char *)num, 1);
     }
 
     if (event.type == KeyPress) {
@@ -387,7 +394,7 @@ int main(void) {
 
       if (key == XK_Return) {
         char *password;
-        if (decrypt_file(filtered_passwords.items[start], &password, home) != 0) {
+        if (decrypt_file(filtered_passwords.items[start], &password, home, line) != 0) {
           break;
         }
 
@@ -407,6 +414,16 @@ int main(void) {
         start = (start + 1) % filtered_passwords.count;
       } else if (key == XK_Down) {
         start = (start + filtered_passwords.count - 1) % filtered_passwords.count;
+      }
+
+      if (key == XK_F1) {
+        line = 0;
+      } else if (key == XK_F2) {
+        line = 1;
+      } else if (key == XK_F3) {
+        line = 2;
+      } else if (key == XK_F4) {
+        line = 3;
       }
 
       if (key == XK_BackSpace) {

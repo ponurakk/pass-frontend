@@ -4,7 +4,7 @@
 #include <string.h>
 #include <sys/types.h>
 
-int decrypt_file(const char *path, char **out, char *home) {
+int decrypt_file(const char *path, char **out, char *home, size_t line) {
   gpgme_ctx_t ctx = NULL;
   gpgme_data_t cipher = NULL;
   gpgme_data_t plain = NULL;
@@ -46,8 +46,23 @@ int decrypt_file(const char *path, char **out, char *home) {
 
       // Keep only the first line (the password).
       char *newline = strpbrk(password, "\r\n");
-      if (newline)
+      while (line) {
+        if (newline) {
+          char *second = newline + 1;
+
+          if (*newline == '\r' && *second == '\n')
+            second++;
+
+          memmove(password, second, strlen(second) + 1);
+        }
+
+        newline = strpbrk(password, "\r\n");
+        line--;
+      }
+
+      if (newline) {
         *newline = '\0';
+      }
 
       *out = strdup(password);
 
