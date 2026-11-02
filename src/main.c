@@ -1,20 +1,130 @@
 #include "crypto.h"
 #include <X11/X.h>
+#include <X11/Xatom.h>
 #include <X11/Xft/Xft.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
+#include <dirent.h>
 #include <gpgme.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define WINDOW_WIDTH 600
-#define WINDOW_HEIGHT 100
+#define WINDOW_HEIGHT 160
 #define PADDING 20
 #define INPUT_SIZE 512
 
+typedef struct {
+  unsigned long flags;
+  unsigned long functions;
+  unsigned long decorations;
+  long input_mode;
+  unsigned long status;
+} MotifWmHints;
+
+#define MWM_HINTS_DECORATIONS (1L << 1)
+
+#define arr_appendp(arr, v)                                                    \
+  do {                                                                         \
+    if (arr->count >= arr->capacity) {                                         \
+      if (arr->capacity == 0)                                                  \
+        arr->capacity = 256;                                                   \
+      else                                                                     \
+        arr->capacity *= 2;                                                    \
+      arr->items = realloc(arr->items, arr->capacity * sizeof(*arr->items));   \
+    }                                                                          \
+    arr->items[arr->count++] = v;                                              \
+  } while (0)
+
+#define arr_append(arr, v)                                                     \
+  do {                                                                         \
+    if (arr.count >= arr.capacity) {                                           \
+      if (arr.capacity == 0)                                                   \
+        arr.capacity = 256;                                                    \
+      else                                                                     \
+        arr.capacity *= 2;                                                     \
+      arr.items = realloc(arr.items, arr.capacity * sizeof(*arr.items));       \
+    }                                                                          \
+    arr.items[arr.count++] = v;                                                \
+  } while (0)
+
+typedef struct {
+  char **items;
+  size_t count;
+  size_t capacity;
+} Passwords;
+
+int get_passwords(char *path, Passwords *passwords) {
+  DIR *dir = opendir(path);
+
+  if (dir == NULL) {
+    fprintf(stderr, "Failed to open directory\n");
+    return 1;
+  }
+
+  struct dirent *de;
+  int result = 0;
+
+  while ((de = readdir(dir)) != NULL) {
+    if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0 ||
+        strcmp(de->d_name, ".stfolder") == 0) {
+      continue;
+    }
+
+    char *new_path = NULL;
+    if (asprintf(&new_path, "%s/%s", path, de->d_name) == -1) {
+      result = 1;
+      break;
+    };
+
+    if (de->d_type == DT_DIR) {
+      if (get_passwords(new_path, passwords) != 0) {
+        result = 1;
+      };
+
+      free(new_path);
+    } else if (de->d_type == DT_REG) {
+      size_t len = strlen(de->d_name);
+
+      if (len >= 4 && strcmp(de->d_name + len - 4, ".gpg") == 0) {
+        arr_appendp(passwords, new_path);
+        continue;
+      }
+
+      free(new_path);
+    } else {
+      free(new_path);
+    }
+
+    if (result != 0)
+      break;
+  }
+
+  closedir(dir);
+
+  return result;
+}
+
 int main() {
   gpgme_check_version(NULL);
+  char *home = getenv("HOME");
+
+  if (home == NULL) {
+    perror("HOME not set");
+    return 1;
+  }
+
+  Passwords passwords = {0};
+
+  char path[256];
+  sprintf(path, "%s/.password-store", home);
+  if (get_passwords(path, &passwords) != 0) {
+    fprintf(stderr, "Failed to get passwords\n");
+    return 1;
+  }
 
   Display *display = XOpenDisplay(NULL);
 
@@ -68,10 +178,21 @@ int main() {
   attrs.background_pixel = BlackPixel(display, screen);
   attrs.event_mask = ExposureMask | KeyPressMask;
 
-  Window win =
-      XCreateWindow(display, root, x, y, WINDOW_WIDTH, WINDOW_HEIGHT, 0,
-                    CopyFromParent, InputOutput, CopyFromParent,
-                    CWOverrideRedirect | CWBackPixel | CWEventMask, &attrs);
+  Window win = XCreateWindow(display, root, x, y, WINDOW_WIDTH, WINDOW_HEIGHT,
+                             0, CopyFromParent, InputOutput, CopyFromParent,
+                             CWBackPixel | CWEventMask, &attrs);
+
+  Atom type = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
+  Atom dialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+  Atom motif_hints = XInternAtom(display, "_MOTIF_WM_HINTS", False);
+
+  MotifWmHints hints = {.flags = MWM_HINTS_DECORATIONS, .decorations = 0};
+
+  XChangeProperty(display, win, motif_hints, motif_hints, 32, PropModeReplace,
+                  (unsigned char *)&hints, 5);
+
+  XChangeProperty(display, win, type, XA_ATOM, 32, PropModeReplace,
+                  (unsigned char *)&dialog, 1);
 
   XStoreName(display, win, "pass-frontend");
   XClassHint class_hint = {.res_name = "pass-frontend",
@@ -79,12 +200,11 @@ int main() {
   XSetClassHint(display, win, &class_hint);
 
   XMapRaised(display, win);
-  XSetInputFocus(display, win, RevertToPointerRoot, CurrentTime);
   XFlush(display);
 
   GC gc = XCreateGC(display, win, 0, NULL);
 
-  const unsigned long bg = 0x1A1A1A;
+  const unsigned long bg = 0x010101;
   const unsigned long fg = 0xFFFFFF;
   const unsigned long accent = 0x4E0000;
 
@@ -109,16 +229,48 @@ int main() {
   XftColorAllocName(display, DefaultVisual(display, screen),
                     DefaultColormap(display, screen), "#ffffff", &color);
 
+  XftColor color_highlight;
+  XftColorAllocName(display, DefaultVisual(display, screen),
+                    DefaultColormap(display, screen), "#98020E",
+                    &color_highlight);
+
   char input[INPUT_SIZE] = "";
   size_t length = 0;
 
   XGrabPointer(display, win, False, ButtonPressMask, GrabModeAsync,
                GrabModeAsync, None, None, CurrentTime);
 
-  XEvent event;
+  Passwords filtered_passwords = {0};
+
+  for (size_t i = 0; i < passwords.count; ++i) {
+    int prefix_len = strlen(home) + strlen("/.password-store");
+    memmove(passwords.items[i], passwords.items[i] + prefix_len,
+            strlen(passwords.items[i] + prefix_len) + 1);
+    arr_append(filtered_passwords, passwords.items[i]);
+  }
+
+  int start = 0;
+
+  XEvent event = {0};
+
+  Atom net_active = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
+  event.xclient.type = ClientMessage;
+  event.xclient.window = win;
+  event.xclient.message_type = net_active;
+  event.xclient.format = 32;
+  event.xclient.data.l[0] = 1; // Application request
+  event.xclient.data.l[1] = CurrentTime;
+  event.xclient.data.l[2] = None;
+
+  XSendEvent(display, root, False,
+             SubstructureRedirectMask | SubstructureNotifyMask, &event);
+
+  XFlush(display);
+
   while (1) {
     XNextEvent(display, &event);
 
+    // Close window when clicking outside
     if (event.type == ButtonPress) {
       int px = event.xbutton.x;
       int py = event.xbutton.y;
@@ -137,15 +289,34 @@ int main() {
 
       XSetForeground(display, gc, fg);
 
-      XftDrawStringUtf8(draw, &color, font_small, PADDING, 30,
+      for (size_t i = start; i < filtered_passwords.count; ++i) {
+        int idx = i - start;
+        if (i == start + 5)
+          break;
+
+        char *shown = filtered_passwords.items[i];
+        int len = strlen(shown);
+
+        if (i == start) {
+          XftDrawStringUtf8(draw, &color_highlight, font_small, PADDING,
+                            WINDOW_HEIGHT - (idx * 20) - 50,
+                            (const FcChar8 *)shown, len);
+        } else {
+          XftDrawStringUtf8(draw, &color, font_small, PADDING,
+                            WINDOW_HEIGHT - (idx * 20) - 50,
+                            (const FcChar8 *)shown, len);
+        }
+      }
+
+      XftDrawStringUtf8(draw, &color, font_small, PADDING, WINDOW_HEIGHT - 20,
                         (const FcChar8 *)input, (int)length);
     }
 
     if (event.type == KeyPress) {
       KeySym key;
-      char buffer[32];
+      char buffer[32] = {0}; // typed char
 
-      int n = XLookupString(&event.xkey, buffer, sizeof(buffer), &key, NULL);
+      size_t n = XLookupString(&event.xkey, buffer, sizeof(buffer), &key, NULL);
 
       if (key == XK_Escape) {
         break;
@@ -153,7 +324,8 @@ int main() {
 
       if (key == XK_Return) {
         char *password;
-        if (decrypt_file("./tmp.gpg", &password) != 0) {
+        if (decrypt_file(filtered_passwords.items[start], &password, home) !=
+            0) {
           break;
         }
 
@@ -163,13 +335,28 @@ int main() {
         break;
       }
 
+      if (key == XK_Up) {
+        start = (start + 1) % filtered_passwords.count;
+      } else if (key == XK_Down) {
+        start =
+            (start + filtered_passwords.count - 1) % filtered_passwords.count;
+      }
+
       if (key == XK_BackSpace) {
         if (length > 0)
           input[--length] = '\0';
-      } else if (n > 0 && length + (size_t)n < INPUT_SIZE) {
-        memcpy(input + length, buffer, (size_t)n);
-        length += (size_t)n;
+      } else if (n > 0 && length + n < INPUT_SIZE) {
+        start = 0;
+        memcpy(input + length, buffer, n);
+        length += n;
         input[length] = '\0';
+      }
+
+      filtered_passwords.count = 0;
+      for (size_t i = 0; i < passwords.count; ++i) {
+        if (strstr(passwords.items[i], input)) {
+          arr_append(filtered_passwords, passwords.items[i]);
+        }
       }
 
       XClearArea(display, win, 0, 0, 0, 0, True);
@@ -178,20 +365,14 @@ int main() {
 
   XftColorFree(display, DefaultVisual(display, screen),
                DefaultColormap(display, screen), &color);
+  XftColorFree(display, DefaultVisual(display, screen),
+               DefaultColormap(display, screen), &color_highlight);
   XftDrawDestroy(draw);
   XftFontClose(display, font_large);
 
   XFreeGC(display, gc);
   XDestroyWindow(display, win);
   XCloseDisplay(display);
-
-  // char *password;
-  // if (decrypt_file("./tmp.gpg", &password) != 0) {
-  //   fprintf(stderr, "Failed to decrypt file\n");
-  //   return 1;
-  // }
-
-  // printf("%s\n", password);
 
   return 0;
 }

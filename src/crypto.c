@@ -2,7 +2,7 @@
 #include <gpgme.h>
 #include <string.h>
 
-int decrypt_file(const char *path, char **out) {
+int decrypt_file(const char *path, char **out, char *home) {
   gpgme_ctx_t ctx = NULL;
   gpgme_data_t cipher = NULL;
   gpgme_data_t plain = NULL;
@@ -13,8 +13,14 @@ int decrypt_file(const char *path, char **out) {
   if (!err)
     err = gpgme_set_protocol(ctx, GPGME_PROTOCOL_OpenPGP);
 
+  char *new_path = NULL;
+  if (asprintf(&new_path, "%s/.password-store%s", home, path) == -1) {
+    result = 1;
+    return result;
+  };
+
   if (!err)
-    err = gpgme_data_new_from_file(&cipher, path, 1);
+    err = gpgme_data_new_from_file(&cipher, new_path, 1);
 
   if (!err)
     err = gpgme_data_new(&plain);
