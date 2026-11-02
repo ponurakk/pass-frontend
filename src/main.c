@@ -5,12 +5,14 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/keysym.h>
 #include <dirent.h>
+#include <fontconfig/fontconfig.h>
 #include <gpgme.h>
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 
 #define WINDOW_WIDTH 600
 #define WINDOW_HEIGHT 160
@@ -108,7 +110,7 @@ int get_passwords(char *path, Passwords *passwords) {
   return result;
 }
 
-int main() {
+int main(void) {
   gpgme_check_version(NULL);
   char *home = getenv("HOME");
 
@@ -249,7 +251,7 @@ int main() {
     arr_append(filtered_passwords, passwords.items[i]);
   }
 
-  int start = 0;
+  size_t start = 0;
 
   XEvent event = {0};
 

@@ -1,6 +1,8 @@
 #include "crypto.h"
 #include <gpgme.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
 
 int decrypt_file(const char *path, char **out, char *home) {
   gpgme_ctx_t ctx = NULL;
