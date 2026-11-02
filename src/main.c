@@ -13,13 +13,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #define WINDOW_WIDTH 600
 #define WINDOW_HEIGHT 160
 #define PADDING 20
 #define INPUT_SIZE 512
+#define PSTORE_PATH ".password-store"
 
-typedef struct {
+typedef struct MotifWmHints {
   unsigned long flags;
   unsigned long functions;
   unsigned long decorations;
@@ -28,6 +30,17 @@ typedef struct {
 } MotifWmHints;
 
 #define MWM_HINTS_DECORATIONS (1L << 1)
+
+typedef struct Clipboard {
+  Display *display;
+  Window win;
+
+  Atom clipboard;
+  Atom utf8_string;
+  Atom targets;
+
+  const char *text;
+} Clipboard;
 
 #define arr_append_impl(items, count, capacity, v)                                                 \
   do {                                                                                             \
@@ -42,7 +55,7 @@ typedef struct {
 
 #define arr_append(arr, v) arr_append_impl((arr).items, (arr).count, (arr).capacity, (v))
 
-typedef struct {
+typedef struct Passwords {
   char **items;
   size_t count;
   size_t capacity;
@@ -99,6 +112,73 @@ int get_passwords(char *path, Passwords *passwords) {
   return result;
 }
 
+void handle_selection_request(Clipboard *cb, XSelectionRequestEvent *req) {
+  XSelectionEvent response = {.type = SelectionNotify,
+                              .display = cb->display,
+                              .requestor = req->requestor,
+                              .selection = req->selection,
+                              .target = req->target,
+                              .time = req->time,
+                              .property = None};
+
+  Atom property = req->property == None ? req->target : req->property;
+
+  if (req->target == cb->targets) {
+    Atom supported[] = {cb->targets, cb->utf8_string, XA_STRING};
+
+    XChangeProperty(cb->display, req->requestor, property, XA_ATOM, 32, PropModeReplace,
+                    (unsigned char *)supported, 3);
+
+    response.property = property;
+  } else if (req->target == cb->utf8_string || req->target == XA_STRING) {
+    XChangeProperty(cb->display, req->requestor, property, req->target, 8, PropModeReplace,
+                    (const unsigned char *)cb->text, strlen(cb->text));
+
+    response.property = property;
+  }
+
+  XSendEvent(cb->display, req->requestor, False, 0, (XEvent *)&response);
+  XFlush(cb->display);
+}
+
+static void clipboard_process(const char *text) {
+  Display *display = XOpenDisplay(NULL);
+  if (!display)
+    _exit(1);
+
+  Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 1, 1, 0, 0, 0);
+
+  Clipboard cb = {.display = display,
+                  .win = window,
+                  .clipboard = XInternAtom(display, "CLIPBOARD", False),
+                  .utf8_string = XInternAtom(display, "UTF8_STRING", False),
+                  .targets = XInternAtom(display, "TARGETS", False),
+                  .text = text};
+
+  XSetSelectionOwner(display, cb.clipboard, window, CurrentTime);
+  XFlush(display);
+
+  if (XGetSelectionOwner(display, cb.clipboard) != window)
+    _exit(1);
+
+  XEvent event;
+
+  while (1) {
+    XNextEvent(display, &event);
+
+    if (event.type == SelectionRequest) {
+      handle_selection_request(&cb, &event.xselectionrequest);
+    }
+
+    if (event.type == SelectionClear)
+      break;
+  }
+
+  XCloseDisplay(display);
+  free((void *)text);
+  _exit(0);
+}
+
 int main(void) {
   gpgme_check_version(NULL);
   char *home = getenv("HOME");
@@ -111,7 +191,7 @@ int main(void) {
   Passwords passwords = {0};
 
   char path[256];
-  sprintf(path, "%s/.password-store", home);
+  sprintf(path, "%s/%s", home, PSTORE_PATH);
   if (get_passwords(path, &passwords) != 0) {
     fprintf(stderr, "Failed to get passwords\n");
     return 1;
@@ -230,7 +310,7 @@ int main(void) {
   Passwords filtered_passwords = {0};
 
   for (size_t i = 0; i < passwords.count; ++i) {
-    int prefix_len = strlen(home) + strlen("/.password-store");
+    int prefix_len = strlen(home) + strlen("/") + strlen(PSTORE_PATH);
     memmove(passwords.items[i], passwords.items[i] + prefix_len,
             strlen(passwords.items[i] + prefix_len) + 1);
     arr_append(filtered_passwords, passwords.items[i]);
@@ -239,7 +319,6 @@ int main(void) {
   size_t start = 0;
 
   XEvent event = {0};
-
   Atom net_active = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
   event.xclient.type = ClientMessage;
   event.xclient.window = win;
@@ -312,7 +391,13 @@ int main(void) {
           break;
         }
 
-        printf("Password: %s\n", password);
+        pid_t pid = fork();
+
+        if (pid == 0) {
+          clipboard_process(password);
+        }
+
+        free(password);
 
         XClearArea(display, win, 0, 0, 0, 0, True);
         break;
