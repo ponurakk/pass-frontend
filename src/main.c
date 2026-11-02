@@ -29,29 +29,18 @@ typedef struct {
 
 #define MWM_HINTS_DECORATIONS (1L << 1)
 
-#define arr_appendp(arr, v)                                                    \
-  do {                                                                         \
-    if (arr->count >= arr->capacity) {                                         \
-      if (arr->capacity == 0)                                                  \
-        arr->capacity = 256;                                                   \
-      else                                                                     \
-        arr->capacity *= 2;                                                    \
-      arr->items = realloc(arr->items, arr->capacity * sizeof(*arr->items));   \
-    }                                                                          \
-    arr->items[arr->count++] = v;                                              \
+#define arr_append_impl(items, count, capacity, v)                                                 \
+  do {                                                                                             \
+    if ((count) >= (capacity)) {                                                                   \
+      (capacity) = (capacity) == 0 ? 256 : (capacity) * 2;                                         \
+      (items) = realloc((items), (capacity) * sizeof(*(items)));                                   \
+    }                                                                                              \
+    (items)[(count)++] = (v);                                                                      \
   } while (0)
 
-#define arr_append(arr, v)                                                     \
-  do {                                                                         \
-    if (arr.count >= arr.capacity) {                                           \
-      if (arr.capacity == 0)                                                   \
-        arr.capacity = 256;                                                    \
-      else                                                                     \
-        arr.capacity *= 2;                                                     \
-      arr.items = realloc(arr.items, arr.capacity * sizeof(*arr.items));       \
-    }                                                                          \
-    arr.items[arr.count++] = v;                                                \
-  } while (0)
+#define arr_appendp(arr, v) arr_append_impl((arr)->items, (arr)->count, (arr)->capacity, (v))
+
+#define arr_append(arr, v) arr_append_impl((arr).items, (arr).count, (arr).capacity, (v))
 
 typedef struct {
   char **items;
@@ -146,8 +135,8 @@ int main(void) {
   int win_x, win_y;
   uint mask;
 
-  XQueryPointer(display, root, &root_return, &child_return, &mouse_x, &mouse_y,
-                &win_x, &win_y, &mask);
+  XQueryPointer(display, root, &root_return, &child_return, &mouse_x, &mouse_y, &win_x, &win_y,
+                &mask);
 
   int monitor_x = 0;
   int monitor_y = 0;
@@ -180,9 +169,8 @@ int main(void) {
   attrs.background_pixel = BlackPixel(display, screen);
   attrs.event_mask = ExposureMask | KeyPressMask;
 
-  Window win = XCreateWindow(display, root, x, y, WINDOW_WIDTH, WINDOW_HEIGHT,
-                             0, CopyFromParent, InputOutput, CopyFromParent,
-                             CWBackPixel | CWEventMask, &attrs);
+  Window win = XCreateWindow(display, root, x, y, WINDOW_WIDTH, WINDOW_HEIGHT, 0, CopyFromParent,
+                             InputOutput, CopyFromParent, CWBackPixel | CWEventMask, &attrs);
 
   Atom type = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
   Atom dialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
@@ -193,12 +181,10 @@ int main(void) {
   XChangeProperty(display, win, motif_hints, motif_hints, 32, PropModeReplace,
                   (unsigned char *)&hints, 5);
 
-  XChangeProperty(display, win, type, XA_ATOM, 32, PropModeReplace,
-                  (unsigned char *)&dialog, 1);
+  XChangeProperty(display, win, type, XA_ATOM, 32, PropModeReplace, (unsigned char *)&dialog, 1);
 
   XStoreName(display, win, "pass-frontend");
-  XClassHint class_hint = {.res_name = "pass-frontend",
-                           .res_class = "PassFrontend"};
+  XClassHint class_hint = {.res_name = "pass-frontend", .res_class = "PassFrontend"};
   XSetClassHint(display, win, &class_hint);
 
   XMapRaised(display, win);
@@ -224,23 +210,22 @@ int main(void) {
     return 1;
   }
 
-  XftDraw *draw = XftDrawCreate(display, win, DefaultVisual(display, screen),
-                                DefaultColormap(display, screen));
+  XftDraw *draw =
+      XftDrawCreate(display, win, DefaultVisual(display, screen), DefaultColormap(display, screen));
 
   XftColor color;
-  XftColorAllocName(display, DefaultVisual(display, screen),
-                    DefaultColormap(display, screen), "#ffffff", &color);
+  XftColorAllocName(display, DefaultVisual(display, screen), DefaultColormap(display, screen),
+                    "#ffffff", &color);
 
   XftColor color_highlight;
-  XftColorAllocName(display, DefaultVisual(display, screen),
-                    DefaultColormap(display, screen), "#98020E",
-                    &color_highlight);
+  XftColorAllocName(display, DefaultVisual(display, screen), DefaultColormap(display, screen),
+                    "#98020E", &color_highlight);
 
   char input[INPUT_SIZE] = "";
   size_t length = 0;
 
-  XGrabPointer(display, win, False, ButtonPressMask, GrabModeAsync,
-               GrabModeAsync, None, None, CurrentTime);
+  XGrabPointer(display, win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None,
+               CurrentTime);
 
   Passwords filtered_passwords = {0};
 
@@ -264,8 +249,7 @@ int main(void) {
   event.xclient.data.l[1] = CurrentTime;
   event.xclient.data.l[2] = None;
 
-  XSendEvent(display, root, False,
-             SubstructureRedirectMask | SubstructureNotifyMask, &event);
+  XSendEvent(display, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &event);
 
   XFlush(display);
 
@@ -301,11 +285,9 @@ int main(void) {
 
         if (i == start) {
           XftDrawStringUtf8(draw, &color_highlight, font_small, PADDING,
-                            WINDOW_HEIGHT - (idx * 20) - 50,
-                            (const FcChar8 *)shown, len);
+                            WINDOW_HEIGHT - (idx * 20) - 50, (const FcChar8 *)shown, len);
         } else {
-          XftDrawStringUtf8(draw, &color, font_small, PADDING,
-                            WINDOW_HEIGHT - (idx * 20) - 50,
+          XftDrawStringUtf8(draw, &color, font_small, PADDING, WINDOW_HEIGHT - (idx * 20) - 50,
                             (const FcChar8 *)shown, len);
         }
       }
@@ -326,8 +308,7 @@ int main(void) {
 
       if (key == XK_Return) {
         char *password;
-        if (decrypt_file(filtered_passwords.items[start], &password, home) !=
-            0) {
+        if (decrypt_file(filtered_passwords.items[start], &password, home) != 0) {
           break;
         }
 
@@ -340,8 +321,7 @@ int main(void) {
       if (key == XK_Up) {
         start = (start + 1) % filtered_passwords.count;
       } else if (key == XK_Down) {
-        start =
-            (start + filtered_passwords.count - 1) % filtered_passwords.count;
+        start = (start + filtered_passwords.count - 1) % filtered_passwords.count;
       }
 
       if (key == XK_BackSpace) {
@@ -365,10 +345,9 @@ int main(void) {
     }
   }
 
-  XftColorFree(display, DefaultVisual(display, screen),
-               DefaultColormap(display, screen), &color);
-  XftColorFree(display, DefaultVisual(display, screen),
-               DefaultColormap(display, screen), &color_highlight);
+  XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen), &color);
+  XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen),
+               &color_highlight);
   XftDrawDestroy(draw);
   XftFontClose(display, font_large);
 
