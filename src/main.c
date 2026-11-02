@@ -18,7 +18,7 @@
 #define WINDOW_WIDTH 600
 #define WINDOW_HEIGHT 160
 #define PADDING 20
-#define INPUT_SIZE 512
+#define INPUT_SIZE 70
 #define PSTORE_PATH ".password-store"
 
 typedef struct MotifWmHints {
@@ -218,8 +218,7 @@ int main(void) {
   XQueryPointer(display, root, &root_return, &child_return, &mouse_x, &mouse_y, &win_x, &win_y,
                 &mask);
 
-  int monitor_x = 0;
-  int monitor_y = 0;
+  int monitor_x = 0, monitor_y = 0;
   int monitor_width = screen_width;
   int monitor_height = screen_height;
 
@@ -244,10 +243,11 @@ int main(void) {
   int x = monitor_x + (monitor_width - WINDOW_WIDTH) / 2;
   int y = monitor_y + (monitor_height - WINDOW_HEIGHT) / 2;
 
-  XSetWindowAttributes attrs = {0};
-  attrs.override_redirect = True;
-  attrs.background_pixel = BlackPixel(display, screen);
-  attrs.event_mask = ExposureMask | KeyPressMask;
+  XSetWindowAttributes attrs = {
+      .override_redirect = True,
+      .background_pixel = BlackPixel(display, screen),
+      .event_mask = ExposureMask | KeyPressMask,
+  };
 
   Window win = XCreateWindow(display, root, x, y, WINDOW_WIDTH, WINDOW_HEIGHT, 0, CopyFromParent,
                              InputOutput, CopyFromParent, CWBackPixel | CWEventMask, &attrs);
@@ -278,12 +278,6 @@ int main(void) {
 
   XSetWindowBackground(display, win, bg);
 
-  XftFont *font_large = XftFontOpenName(display, screen, "Iosevka:size=16");
-  if (!font_large) {
-    fprintf(stderr, "Failed to load font\n");
-    return 1;
-  }
-
   XftFont *font_small = XftFontOpenName(display, screen, "Iosevka:size=10");
   if (!font_small) {
     fprintf(stderr, "Failed to load font\n");
@@ -301,9 +295,6 @@ int main(void) {
   XftColorAllocName(display, DefaultVisual(display, screen), DefaultColormap(display, screen),
                     "#98020E", &color_highlight);
 
-  char input[INPUT_SIZE] = "";
-  size_t length = 0;
-
   XGrabPointer(display, win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None,
                CurrentTime);
 
@@ -316,22 +307,22 @@ int main(void) {
     arr_append(filtered_passwords, passwords.items[i]);
   }
 
-  size_t start = 0;
-  size_t line = 0;
-
-  XEvent event = {0};
   Atom net_active = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
-  event.xclient.type = ClientMessage;
-  event.xclient.window = win;
-  event.xclient.message_type = net_active;
-  event.xclient.format = 32;
-  event.xclient.data.l[0] = 1; // Application request
-  event.xclient.data.l[1] = CurrentTime;
-  event.xclient.data.l[2] = None;
+  XEvent event = {.xclient = {.type = ClientMessage,
+                              .window = win,
+                              .message_type = net_active,
+                              .format = 32,
+                              .data.l = {1, CurrentTime, None, 0, 0}}};
 
   XSendEvent(display, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &event);
 
   XFlush(display);
+
+  char input[INPUT_SIZE] = "";
+  size_t length = 0;
+
+  size_t start = 0;
+  size_t line = 0;
   while (1) {
     XNextEvent(display, &event);
 
@@ -438,7 +429,7 @@ int main(void) {
 
       filtered_passwords.count = 0;
       for (size_t i = 0; i < passwords.count; ++i) {
-        if (strstr(passwords.items[i], input)) {
+        if (strcasestr(passwords.items[i], input)) {
           arr_append(filtered_passwords, passwords.items[i]);
         }
       }
@@ -451,7 +442,6 @@ int main(void) {
   XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen),
                &color_highlight);
   XftDrawDestroy(draw);
-  XftFontClose(display, font_large);
 
   XFreeGC(display, gc);
   XDestroyWindow(display, win);
